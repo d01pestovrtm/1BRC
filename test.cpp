@@ -19,8 +19,9 @@ namespace oneBRC {
 		std::optional < int > value;
 		while (value = q.pop()) {
 			std::cout << std::format ("Worker with id {} - {}\n", id, value.value_or(-1));
+			std::this_thread::sleep_for(std::chrono::seconds(1));
 		}
-		std::this_thread::sleep_for(std::chrono::seconds(1));
+		
 	}
 }
 
