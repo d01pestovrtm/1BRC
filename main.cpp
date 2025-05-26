@@ -68,7 +68,7 @@ void writeOutput( Records& records) {
 	std::cout << '{';
 	//note: preincrement doesn't copy iterator
 	auto begin = v.begin();
-	for (auto end = --v.end() ; begin != end; ++begin) {
+	for (auto end = std::prev(v.end()) ; begin != end; ++begin) {
 		printStat(records, *begin, first_fmt);
 	}
 	printStat(records, *begin, last_fmt);
@@ -77,7 +77,7 @@ void writeOutput( Records& records) {
 
 
 int main() {
-	std::ifstream ifile("measurements_10000.txt", ifile.in); 
+	std::ifstream ifile("test.txt", ifile.in); 
 	auto records = processRecords(ifile);
 	writeOutput(records);
 	return 0;
