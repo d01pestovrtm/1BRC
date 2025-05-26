@@ -9,6 +9,68 @@
 #include <set>
 
 
+
+namespace oneBRC {
+// A threadsafe-queue. Implementation from https://codetrips.com/2020/07/26/modern-c-writing-a-thread-safe-queue/
+template<typename T>
+class ThreadsafeQueue {
+	std::queue<T> queue_;
+	mutable std::mutex mutex_;
+ 
+	// Moved out of public interface to prevent races between this
+	// and pop().
+	bool empty() const {
+		return queue_.empty();
+	}
+ 
+public:
+	ThreadsafeQueue() = default;
+	ThreadsafeQueue(const ThreadsafeQueue<T> &) = delete ;
+	ThreadsafeQueue& operator=(const ThreadsafeQueue<T> &) = delete ;
+
+	ThreadsafeQueue(ThreadsafeQueue<T>&& other) noexcept {
+		std::lock_guard<std::mutex> lock(mutex_);
+		queue_ = std::move(other.queue_);
+	}
+  
+	//TODO because of Rule of 5 I must implement move assignement. I will do this later
+	ThreadsafeQueue& operator=(ThreadsafeQueue<T> &&) noexcept = delete ;
+  	virtual ~ThreadsafeQueue() {}
+ 
+	size_t size() const {
+		std::lock_guard<std::mutex> lock(mutex_);
+		return queue_.size();
+	}
+ 
+ 	std::optional<T> pop() {
+		std::lock_guard<std::mutex> lock(mutex_);
+		if (queue_.empty()) {
+      			return {};
+      		}
+    		T tmp = queue_.front();
+    		queue_.pop();
+    		return tmp;
+  	}
+ 
+	void push(const T &item) {
+		std::lock_guard<std::mutex> lock(mutex_);
+		queue_.push(item);
+	}
+};
+
+Records processRecords(std::istream& input) {
+	Records records;
+	/* std::string is okay I think, because most of the time the short string optimization should be invoked
+	 */
+	std::string line;
+	while(std::getline(input, line)) {
+		auto[place, temp] = parseLine(line);
+		records[place].push_back(temp);
+	}
+	return records;
+}
+
+
 /* std::vector is probably the most optimized container, so I want to spare time on 
  * min_temp = std::min(min_temp, other_temp) and use push_backs instead 
  * It is also interesting to test if my idea with SIMD (single instuction many additions) will work
@@ -74,10 +136,10 @@ void writeOutput( Records& records) {
 	printStat(records, *begin, last_fmt);
 	std::cout << '}';
 }
-
+}
 
 int main() {
-	std::ifstream ifile("test.txt", ifile.in); 
+	std::ifstream ifile("measurements_10000.txt", ifile.in); 
 	auto records = processRecords(ifile);
 	writeOutput(records);
 	return 0;
