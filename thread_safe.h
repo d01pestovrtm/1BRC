@@ -5,6 +5,7 @@
 
 
 namespace oneBRC {
+
 // A threadsafe-queue. Implementation from https://codetrips.com/2020/07/26/modern-c-writing-a-thread-safe-queue/
 template<typename T>
 class ThreadsafeQueue {
