@@ -8,4 +8,7 @@ a.out
 1brc/*
 1brc
 
+# To improve the code I use perf profiler
+perf*
+
 
