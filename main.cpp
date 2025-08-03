@@ -155,7 +155,7 @@ struct MemoryMap {
 		if (end > begin_ + size_)
 			end = begin_ + size_;
 		
-		//Here is possible overflow, so I need an extra check
+		//Here is a possible overflow, so I need an extra check
 		/*
 		The reason is: imagine we have 2 lines:
 		test\n
@@ -200,6 +200,22 @@ struct Stat {
 
 using Records = std::unordered_map <std::string, Stat>;
 
+std::string_view nextRecord(std::span <const char> sp) {
+	auto begin = sp.begin();
+	auto end = std::find(begin, sp.end(), '\n');
+	return std::string_view(begin, end + 1);
+}
+
+void updateRecords(std::span <const char> sp) {
+	size_t begin = 0;
+	size_t end = sp.size();
+	while (begin < end) {
+		auto record = nextRecord(sp.subspan(begin, end));
+		std::cout << record;
+		begin += record.size();
+	}
+	
+}
 
 
 
@@ -210,25 +226,13 @@ std::ostream& operator<<(std::ostream& out, std::span <const char> sp) {
 }
 
 int main(int argc, char* argv[]) {
-	auto m =  MemoryMap("measurements_10000.txt");
-	auto chunk = m.getChunk();
-	std::cout << chunk.size() << '\n';
-	std::string_view sv = std::string_view(chunk.begin(), chunk.end());
-	std::cout << sv << '\n';
-	std::cout << chunk;
-	//std::cout << chunk.data();
-	
-	/*
-	
-	std::filesystem::path path("measurements_10000.txt");
-	if (!std::filesystem::exists(path)) {
-		std::cerr << "File doesn't exist!\n";
-		return 1; 
+	auto m =  MemoryMap("test.txt");
+	std::size_t chunkSize = 1000;
+	auto sp = m.getChunk(chunkSize);
+	while (!sp.empty()) {
+		std::cout << sp;
+		updateRecords(sp);
+		sp = m.getChunk(chunkSize);
 	}
-	std::ifstream ifile(path, ifile.in); 
-	auto records = oneBRC::processRecords(ifile);
-	oneBRC::writeOutput(records);
-	return 0;
-	*/
 }
 
