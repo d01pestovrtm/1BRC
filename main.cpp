@@ -122,7 +122,6 @@ private:
 };
 
 //struct for mapping file and giving buffer
-template <size_t bufferSize>
 struct MemoryMap {
 	explicit MemoryMap(const std::filesystem::path &file_path) :
 		fhandler_(file_path)
@@ -134,7 +133,6 @@ struct MemoryMap {
 			throw std::system_error(errno, std::system_category(), "Cannot obtain information about the file");
 		
 		size_ = file_stat.st_size;
-		std::cout << size_ << '\n';
 		begin_ = static_cast <char *>(mmap(NULL, size_, PROT_READ, MAP_PRIVATE, fhandler_.get(), 0));
 		if (begin_ == MAP_FAILED)
 			throw std::system_error(errno, std::system_category(), "Cannot establish a mapping between a process' address space and a file");
@@ -144,7 +142,7 @@ struct MemoryMap {
 	//return memory chunk <= bufferSize such that all measurements are consistent
 	//by implementation chunk will have at least one measurement
 	//TODO test if string_view is better here
-	std::span <const char> getChunk() {
+	std::span <const char> getChunk(size_t bufferSize = 128) {
 		if (bufferSize >= size_) {
 			auto result =  std::span <const char>(current_, begin_ + size_);
 			current_ = begin_ + size_;
@@ -204,92 +202,24 @@ using Records = std::unordered_map <std::string, Stat>;
 
 
 
-namespace oneBRC {
-constexpr size_t min_buffer_size = 128; // Rule 4.1 Buffer must be able to hold at least one line
-constexpr size_t Mb_multiplicator = 1024 * 1024; // multiplicator bytes -> megabytes
 
-//struct to parse command line arguments. I want to test in the future how big should be buffer and how many threads are good
-//I want to implement multi producer/multiconsumer queue like in: 
-struct CLargs {
-	int buf_size; 
-	int n_in_threads;
-	int n_out_threads;
-};
-
-using FloatType = float; 
-struct Stat {
-	float min;
-	float max;
-	float sum;
-	int nRecords;
-};
-//using Stat = std::vector<FloatType>;
-
-
-using Records = std::unordered_map <std::string, Stat>;
-//TODO to const char* conversion
-using Record = std::pair <std::string, FloatType>;
-
-
-Record parseLine(const std::string& line) {
-	auto pos = line.find(';');
-	return { line.substr(0, pos), std::atof(line.substr(pos + 1).c_str()) };
+std::ostream& operator<<(std::ostream& out, std::span <const char> sp) {
+	for (auto c : sp)
+		out << c;
+	return out;
 }
-
-Records processRecords(std::istream& input) {
-	Records records;
-
-	std::string line;
-	while(std::getline(input, line)) {
-		auto[place, temp] = parseLine(line);
-		float min, max, sum;
-		min = max = sum = temp;
-		int n = 0;
-
-		auto it = records.find(place);
-		if (it != records.end()){
-			auto& record = it->second;
-			min = std::min(record.min, min);
-			max = std::max(record.max, max);
-			sum += record.sum;
-			n = record.nRecords;
-		}
-		records[place] = Stat{min, max, sum, ++n};
-	}
-	return records;
-}
-
-
-
-void writeOutput( Records& records) {
-
-	auto printStat = [](Records& r, const std::string& key, std::string_view format) {
-		const auto& stat = r[key];
-		std::cout << std::vformat(format, std::make_format_args(key, stat.min, stat.sum / stat.nRecords,  stat.max));
-	};
-	
-	// we have to sort strings. I am not sure this is the best way
-	std::set<std::string> v;
-	for (auto& [key, _] : records) {
-		v.insert(key);
-	}
-	
-	//print stat
-	constexpr std::string_view first_fmt = "{}={:.1f}/{:.1f}/{:.1f}, ";
-	constexpr std::string_view last_fmt = "{}={:.1f}/{:.1f}/{:.1f}";
-	std::cout << '{';
-	//note: preincrement doesn't copy iterator
-	auto begin = v.begin();
-	for (auto end = std::prev(v.end()) ; begin != end; ++begin) {
-		printStat(records, *begin, first_fmt);
-	}
-	printStat(records, *begin, last_fmt);
-	std::cout << '}';
-}
-
-}// namespace oneBRC
 
 int main(int argc, char* argv[]) {
+	auto m =  MemoryMap("measurements_10000.txt");
+	auto chunk = m.getChunk();
+	std::cout << chunk.size() << '\n';
+	std::string_view sv = std::string_view(chunk.begin(), chunk.end());
+	std::cout << sv << '\n';
+	std::cout << chunk;
+	//std::cout << chunk.data();
+	
+	/*
+	
 	std::filesystem::path path("measurements_10000.txt");
 	if (!std::filesystem::exists(path)) {
 		std::cerr << "File doesn't exist!\n";
@@ -299,5 +229,6 @@ int main(int argc, char* argv[]) {
 	auto records = oneBRC::processRecords(ifile);
 	oneBRC::writeOutput(records);
 	return 0;
+	*/
 }
 
