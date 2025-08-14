@@ -235,7 +235,7 @@ struct is_heterogenous_lookup<T, std::void_t<typename T::is_transparent>> : std:
 
 void updateRecords(std::span <const char> sp, Records& records) {
 	static_assert(is_heterogenous_lookup<Records::key_equal>::value, 
-		      "Comparator must support heterogenous lookup, i.e., ::is_transparent = void");
+		      "Comparator must support heterogenous lookup, i.e., *::is_transparent = void");
 	size_t begin = 0;
 	size_t end = sp.size();
 	while (begin < end) {
@@ -243,19 +243,40 @@ void updateRecords(std::span <const char> sp, Records& records) {
 		begin += record.size();		
 		auto sep = record.find_first_of(';');
 		auto place_sv = record.substr(0, sep);
-		//create std::string only first time we have this place
-		auto found = records.find(place_sv);
+		auto temp_sv = record.substr(sep + 1);
 
+		auto found = records.find(place_sv);
+		float temp;
 		
-		//parse record into place temperature
-		
-		// if not exist -> create new. else update
+		if (found == records.end()) {
+			//create std::string only first time we have this place
+			if (std::from_chars(temp_sv.data(), temp_sv.data() + temp_sv.size(),  temp).ec == std::errc{})
+				records.emplace(std::string(place_sv), Stat{temp, temp, temp, 1});
+		} else {
+			auto& stat = found->second;
+			if (std::from_chars(temp_sv.data(), temp_sv.data() + temp_sv.size(),  temp).ec == std::errc{})
+			{
+				stat.min = std::min(stat.min, temp);
+				stat.sum += temp;
+				stat.max = std::max(stat.max, temp);
+				stat.nRecords ++;
+			}
+			
+		}
 		
 	}
 	
 }
 
 
+std::ostream& operator<<(std::ostream& out, const Records& r) {
+	
+	for (auto& [place, temp] : r) {
+		out << place << ": " <<
+			temp.min << '/' << temp.max << '/' << temp.sum << '/' << temp.nRecords << '\n';
+	}
+	return out;
+} 
 
 std::ostream& operator<<(std::ostream& out, std::span <const char> sp) {
 	for (auto c : sp)
@@ -272,5 +293,6 @@ int main(int argc, char* argv[]) {
 		updateRecords(sp, r);
 		sp = m.getChunk(chunkSize);
 	}
+	std::cout << r;
 }
 
