@@ -35,10 +35,6 @@ Rules and limits applied to C++ version:
 
 */
 
-/*
-
-*/
-
 
 
 #include <iostream>
@@ -61,7 +57,7 @@ Rules and limits applied to C++ version:
 #include <set>
 #include <utility>
 #include <type_traits>
-
+#include <format>
 #include <filesystem>
 #include <concepts>
 #include <type_traits>
@@ -244,7 +240,6 @@ void updateRecords(std::span <const char> sp, Records& records) {
 		auto sep = record.find_first_of(';');
 		auto place_sv = record.substr(0, sep);
 		auto temp_sv = record.substr(sep + 1);
-
 		auto found = records.find(place_sv);
 		float temp;
 		
@@ -260,17 +255,43 @@ void updateRecords(std::span <const char> sp, Records& records) {
 				stat.sum += temp;
 				stat.max = std::max(stat.max, temp);
 				stat.nRecords ++;
-			}
-			
-		}
-		
+			}	
+		}	
 	}
-	
+}
+
+//maybe std::ref (std::string)?
+std::vector<std::string> makeSortedVectorfromMap(const Records& r){
+	std::vector<std::string> result;
+	result.reserve(r.size());
+	std::ranges::transform(r, std::back_inserter(result), 
+				[](auto const& it) {return it.first;});
+	std::ranges::sort(result);
+	return result;
+}
+
+void printRecords( Records& r) {
+	auto records = makeSortedVectorfromMap(r);
+	auto printStat = [](Records& r, const std::string& key, std::string_view format) {
+		const auto& stat = r[key];
+		std::cout << std::vformat(format, 
+			std::make_format_args(key, stat.min, stat.sum / stat.nRecords,  stat.max));
+	};
+	//print stat
+	constexpr std::string_view first_fmt = "{}={:.1f}/{:.1f}/{:.1f}, ";
+	constexpr std::string_view last_fmt = "{}={:.1f}/{:.1f}/{:.1f}";
+	std::cout << '{';
+	//note: preincrement doesn't copy iterator
+	auto begin = records.begin();
+	for (auto end = std::prev(records.end()) ; begin != end; ++begin) {
+		printStat(r, *begin, first_fmt);
+	}
+	printStat(r, *begin, last_fmt);
+	std::cout << '}';
 }
 
 
 std::ostream& operator<<(std::ostream& out, const Records& r) {
-	
 	for (auto& [place, temp] : r) {
 		out << place << ": " <<
 			temp.min << '/' << temp.max << '/' << temp.sum << '/' << temp.nRecords << '\n';
@@ -294,5 +315,6 @@ int main(int argc, char* argv[]) {
 		sp = m.getChunk(chunkSize);
 	}
 	std::cout << r;
+	printRecords(r);
 }
 
