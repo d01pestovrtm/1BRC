@@ -63,7 +63,10 @@ Rules and limits applied to C++ version:
 #include <type_traits>
 
 #include <filesystem>
-
+#include <concepts>
+#include <type_traits>
+#include <functional>
+#include <charconv>
 /*I found this idea of @simontoth really great. It is the first time I use RAII on low-level objects without smart pointers.
 While it might look dummy to create such struct for POD types, but in this approach we don't forget to exchange values properly
 There is also a problem that move semantic for POD is copy.
@@ -198,7 +201,20 @@ struct Stat {
 	int nRecords;
 };
 
-using Records = std::unordered_map <std::string, Stat>;
+struct string_hash {
+	using is_transparent = void;
+	[[nodiscard]] size_t operator()(const char *txt) const {
+		return std::hash<std::string_view>{}(txt);
+	}
+	[[nodiscard]] size_t operator()(std::string_view txt) const {
+		return std::hash<std::string_view>{}(txt);
+	}
+	[[nodiscard]] size_t operator()(const std::string &txt) const {
+		return std::hash<std::string>{}(txt);
+	}
+};
+
+using Records = std::unordered_map <std::string, Stat, string_hash, std::equal_to<>>;
 
 std::string_view nextRecord(std::span <const char> sp) {
 	auto begin = sp.begin();
@@ -206,13 +222,35 @@ std::string_view nextRecord(std::span <const char> sp) {
 	return std::string_view(begin, end + 1);
 }
 
-void updateRecords(std::span <const char> sp) {
+Records r;
+
+//SFINAE to ensure that the lookup in hash_map is heterogenous
+template <typename T, typename = void>
+struct is_heterogenous_lookup : std::false_type {};
+
+template <typename T>
+struct is_heterogenous_lookup<T, std::void_t<typename T::is_transparent>> : std::true_type {};
+
+
+
+void updateRecords(std::span <const char> sp, Records& records) {
+	static_assert(is_heterogenous_lookup<Records::key_equal>::value, 
+		      "Comparator must support heterogenous lookup, i.e., ::is_transparent = void");
 	size_t begin = 0;
 	size_t end = sp.size();
 	while (begin < end) {
 		auto record = nextRecord(sp.subspan(begin, end));
-		std::cout << record;
-		begin += record.size();
+		begin += record.size();		
+		auto sep = record.find_first_of(';');
+		auto place_sv = record.substr(0, sep);
+		//create std::string only first time we have this place
+		auto found = records.find(place_sv);
+
+		
+		//parse record into place temperature
+		
+		// if not exist -> create new. else update
+		
 	}
 	
 }
@@ -227,11 +265,11 @@ std::ostream& operator<<(std::ostream& out, std::span <const char> sp) {
 
 int main(int argc, char* argv[]) {
 	auto m =  MemoryMap("test.txt");
-	std::size_t chunkSize = 1000;
+	std::size_t chunkSize = 30;
 	auto sp = m.getChunk(chunkSize);
 	while (!sp.empty()) {
 		std::cout << sp;
-		updateRecords(sp);
+		updateRecords(sp, r);
 		sp = m.getChunk(chunkSize);
 	}
 }
