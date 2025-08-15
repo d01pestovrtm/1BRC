@@ -23,6 +23,7 @@ and emits the results on stdout like this
 
 Rules and limits applied to C++ version:
 1) I am using C++23 standard compiled with g++ without any side libraries like robin hood hashing
+-- compilation via g++-13 -O3 -std=c++23 main.cpp
 2) Implementations must be provided as a single source file
 3) The computation must happen at application runtime, i.e. you cannot process the measurements file at compile time
 4) Input value ranges are as follows:
@@ -48,6 +49,7 @@ Rules and limits applied to C++ version:
 #include <unistd.h>
 
 #include <spanstream>
+#include <ranges>
 
 #include <vector>
 #include <format>
@@ -263,10 +265,12 @@ void updateRecords(std::span <const char> sp, Records& records) {
 //maybe std::ref (std::string)?
 std::vector<std::string> makeSortedVectorfromMap(const Records& r){
 	std::vector<std::string> result;
+	
 	result.reserve(r.size());
 	std::ranges::transform(r, std::back_inserter(result), 
 				[](auto const& it) {return it.first;});
 	std::ranges::sort(result);
+	
 	return result;
 }
 
@@ -290,15 +294,6 @@ void printRecords( Records& r) {
 	std::cout << '}';
 }
 
-
-std::ostream& operator<<(std::ostream& out, const Records& r) {
-	for (auto& [place, temp] : r) {
-		out << place << ": " <<
-			temp.min << '/' << temp.max << '/' << temp.sum << '/' << temp.nRecords << '\n';
-	}
-	return out;
-} 
-
 std::ostream& operator<<(std::ostream& out, std::span <const char> sp) {
 	for (auto c : sp)
 		out << c;
@@ -306,15 +301,14 @@ std::ostream& operator<<(std::ostream& out, std::span <const char> sp) {
 }
 
 int main(int argc, char* argv[]) {
-	auto m =  MemoryMap("test.txt");
-	std::size_t chunkSize = 30;
+	auto m =  MemoryMap("measurements.txt");
+	std::size_t chunkSize = 128 * 1024 * 1024;
 	auto sp = m.getChunk(chunkSize);
 	while (!sp.empty()) {
-		std::cout << sp;
 		updateRecords(sp, r);
 		sp = m.getChunk(chunkSize);
 	}
-	std::cout << r;
+
 	printRecords(r);
 }
 
