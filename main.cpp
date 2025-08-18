@@ -37,34 +37,26 @@ Rules and limits applied to C++ version:
 */
 
 
-
 #include <iostream>
 #include <unordered_map>
 #include <string>
-//for open
-#include <sys/stat.h>
-#include <sys/mman.h> 
-#include <fcntl.h>
-//for close
-#include <unistd.h>
-
 #include <spanstream>
 #include <ranges>
-
 #include <vector>
 #include <format>
 #include <algorithm>
-#include <fstream>
 #include <string_view>
 #include <set>
 #include <utility>
 #include <type_traits>
-#include <format>
 #include <filesystem>
-#include <concepts>
-#include <type_traits>
-#include <functional>
 #include <charconv>
+#include <sys/stat.h>
+#include <sys/mman.h> 
+#include <fcntl.h>
+#include <unistd.h>
+
+
 /*I found this idea of @simontoth really great. It is the first time I use RAII on low-level objects without smart pointers.
 While it might look dummy to create such struct for POD types, but in this approach we don't forget to exchange values properly
 There is also a problem that move semantic for POD is copy.
@@ -214,13 +206,6 @@ struct string_hash {
 
 using Records = std::unordered_map <std::string, Stat, string_hash, std::equal_to<>>;
 
-std::string_view nextRecord(std::span <const char> sp) {
-	auto begin = sp.begin();
-	auto end = std::find(begin, sp.end(), '\n');
-	return std::string_view(begin, end + 1);
-}
-
-Records r;
 
 //SFINAE to ensure that the lookup in hash_map is heterogenous
 template <typename T, typename = void>
@@ -230,34 +215,43 @@ template <typename T>
 struct is_heterogenous_lookup<T, std::void_t<typename T::is_transparent>> : std::true_type {};
 
 
-
 void updateRecords(std::span <const char> sp, Records& records) {
 	static_assert(is_heterogenous_lookup<Records::key_equal>::value, 
 		      "Comparator must support heterogenous lookup, i.e., *::is_transparent = void");
+	
+	auto nextRecord = [](std::span <const char> sp) {
+		auto begin = sp.begin();
+		auto end = std::find(begin, sp.end(), '\n');
+		return std::string_view(begin, end + 1);
+	};
+		      
 	size_t begin = 0;
-	size_t end = sp.size();
+	const size_t end = sp.size();
 	while (begin < end) {
-		auto record = nextRecord(sp.subspan(begin, end));
+		auto record = nextRecord(sp.subspan(begin));
 		begin += record.size();		
-		auto sep = record.find_first_of(';');
-		auto place_sv = record.substr(0, sep);
-		auto temp_sv = record.substr(sep + 1);
-		auto found = records.find(place_sv);
-		float temp;
 		
-		if (found == records.end()) {
+		auto sep = record.find_first_of(';');
+		
+		std::string_view place_sv = record.substr(0, sep);
+		std::string_view temp_sv = record.substr(sep + 1);
+		
+		float temp;
+		if (std::from_chars(temp_sv.data(), temp_sv.data() + temp_sv.size(),  temp).ec 
+			!= std::errc{})
+			continue; //This case is unlikely
+		
+		
+		auto recordFound = records.find(place_sv);
+		if (recordFound == records.end()) {
 			//create std::string only first time we have this place
-			if (std::from_chars(temp_sv.data(), temp_sv.data() + temp_sv.size(),  temp).ec == std::errc{})
-				records.emplace(std::string(place_sv), Stat{temp, temp, temp, 1});
+			records.emplace(std::string(place_sv), Stat{temp, temp, temp, 1});
 		} else {
-			auto& stat = found->second;
-			if (std::from_chars(temp_sv.data(), temp_sv.data() + temp_sv.size(),  temp).ec == std::errc{})
-			{
-				stat.min = std::min(stat.min, temp);
-				stat.sum += temp;
-				stat.max = std::max(stat.max, temp);
-				stat.nRecords ++;
-			}	
+			auto& stat = recordFound->second;
+			stat.min = std::min(stat.min, temp);
+			stat.sum += temp;
+			stat.max = std::max(stat.max, temp);
+			stat.nRecords ++;
 		}	
 	}
 }
@@ -277,15 +271,16 @@ std::vector<std::string> makeSortedVectorfromMap(const Records& r){
 void printRecords( Records& r) {
 	auto records = makeSortedVectorfromMap(r);
 	auto printStat = [](Records& r, const std::string& key, std::string_view format) {
-		const auto& stat = r[key];
+		const auto& stat = r.at(key);
 		std::cout << std::vformat(format, 
 			std::make_format_args(key, stat.min, stat.sum / stat.nRecords,  stat.max));
 	};
-	//print stat
+	
+
 	constexpr std::string_view first_fmt = "{}={:.1f}/{:.1f}/{:.1f}, ";
 	constexpr std::string_view last_fmt = "{}={:.1f}/{:.1f}/{:.1f}";
+	
 	std::cout << '{';
-	//note: preincrement doesn't copy iterator
 	auto begin = records.begin();
 	for (auto end = std::prev(records.end()) ; begin != end; ++begin) {
 		printStat(r, *begin, first_fmt);
@@ -294,21 +289,24 @@ void printRecords( Records& r) {
 	std::cout << '}';
 }
 
-std::ostream& operator<<(std::ostream& out, std::span <const char> sp) {
-	for (auto c : sp)
-		out << c;
+std::ostream& operator<<(std::ostream& out, const Records& r) {
+	for (const auto[key, value] : r)
+		out << "key: " << key << ", value: " << value.nRecords << '\n';
 	return out;
 }
 
-int main(int argc, char* argv[]) {
+
+int main(int argc, char* argv[]) {	
+	Records r;
+	const size_t chunkSize = 128 * 1024 * 1024;
 	auto m =  MemoryMap("measurements.txt");
-	std::size_t chunkSize = 128 * 1024 * 1024;
+	
 	auto sp = m.getChunk(chunkSize);
 	while (!sp.empty()) {
 		updateRecords(sp, r);
 		sp = m.getChunk(chunkSize);
 	}
-
+	
 	printRecords(r);
 }
 
