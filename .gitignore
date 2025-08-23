@@ -4,10 +4,6 @@ a.out
 # I don't want to push any txt file
 *.txt
 
-# This was initial repo. I will add submodules later.
-1brc/*
-1brc
-
 # To improve the code I use perf profiler
 perf*
 
