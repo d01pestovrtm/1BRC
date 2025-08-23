@@ -1,41 +1,26 @@
 /*
-This is my attempt for 1 billion row challenge.
-Below is the description from https://github.com/gunnarmorling/1brc
+MIT License
 
-The text file "measurements.txt" (15.9 Gb) contains temperature values for a range of weather stations. 
-Each row is one measurement in the format <string: station name>;<double: measurement>, 
-with the measurement value having exactly one fractional digit. The following shows ten rows as an example:
-Hamburg;12.0
-Bulawayo;8.9
-Palembang;38.8
-St. John's;15.2
-Cracow;12.6
-Bridgetown;26.9
-Istanbul;6.2
-Roseau;34.4
-Conakry;31.2
-Istanbul;23.0
+Copyright (c) 2024 RNDr. Dmitrij Pesztov
 
-The task is to write a program which reads the file, calculates the min, mean, and max temperature value per weather station, 
-and emits the results on stdout like this 
-(i.e. sorted alphabetically by station name, and the result values per station in the format <min>/<mean>/<max>, rounded to one fractional digit):
-{Abha=-23.0/18.0/59.2, Abidjan=-16.2/26.0/67.3, Abéché=-10.0/29.4/69.0, Accra=-10.1/26.4/66.4, Addis Ababa=-23.7/16.0/67.0, Adelaide=-27.8/17.3/58.5, ...}
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-Rules and limits applied to C++ version:
-1) I am using C++23 standard compiled with g++ without any side libraries like robin hood hashing
--- compilation via g++-13 -O3 -std=c++23 main.cpp
-2) Implementations must be provided as a single source file
-3) The computation must happen at application runtime, i.e. you cannot process the measurements file at compile time
-4) Input value ranges are as follows:
--- Station name: non null UTF-8 string of min length 1 character and max length 100 bytes, containing neither ; nor \n characters. (i.e. this could be 100 one-byte characters, or 50 two-byte characters, etc.)
--- Temperature value: non null double between -99.9 (inclusive) and 99.9 (inclusive), always with one fractional digit
--- There is a maximum of 10,000 unique station names
--- Line endings in the file are \n characters on all platforms
--- Implementations must not rely on specifics of a given data set, e.g. any valid station name as per the constraints above and any data distribution (number of measurements per station) must be supported
--- The rounding of output values must be done using the semantics of IEEE 754 rounding-direction "roundTowardPositive"
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 */
-
 
 #include <iostream>
 #include <unordered_map>
@@ -57,13 +42,6 @@ Rules and limits applied to C++ version:
 #include <unistd.h>
 
 
-/*I found this idea of @simontoth really great. It is the first time I use RAII on low-level objects without smart pointers.
-While it might look dummy to create such struct for POD types, but in this approach we don't forget to exchange values properly
-There is also a problem that move semantic for POD is copy.
-This might be critical by using open function which returns file descriptor as integer. 
-And close 2 times the same descriptor is UB(imagine if we accidentaly copied the same descriptor(int))
-This helper struct prevents such errors
-*/
 //TODO golang style defer macro?
 // https://habr.com/ru/articles/916760/
 template <typename T, T empty = T{}>
