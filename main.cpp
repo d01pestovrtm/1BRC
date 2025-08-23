@@ -133,7 +133,7 @@ struct MemoryMap {
 	}
 	
 	//return memory chunk <= bufferSize such that all measurements are consistent
-	//by implementation chunk will have at least one measurement
+	//by implementation chunk will have at least one measurement - 100 bytes station name + maximum 6 bytes temperature < 128
 	//TODO test if string_view is better here
 	std::span <const char> getChunk(size_t bufferSize = 128) {
 		if (bufferSize >= size_) {
@@ -257,32 +257,33 @@ void updateRecords(std::span <const char> sp, Records& records) {
 }
 
 //maybe std::ref (std::string)?
-std::vector<std::string> makeSortedVectorfromMap(const Records& r){
+std::vector<std::string> sortStations(const Records& r){
 	std::vector<std::string> result;
-	
 	result.reserve(r.size());
-	std::ranges::transform(r, std::back_inserter(result), 
-				[](auto const& it) {return it.first;});
+	
+	for (const auto& [key, _] : r) {
+		result.push_back(key);
+	}
 	std::ranges::sort(result);
 	
 	return result;
 }
 
-void printRecords( Records& r) {
-	auto records = makeSortedVectorfromMap(r);
-	auto printStat = [](Records& r, const std::string& key, std::string_view format) {
+void printRecords(const Records& r) {
+	auto sortedStations = sortStations(r);
+	
+	auto printStat = [](const Records& r, const std::string& key, std::string_view format) {
 		const auto& stat = r.at(key);
 		std::cout << std::vformat(format, 
 			std::make_format_args(key, stat.min, stat.sum / stat.nRecords,  stat.max));
 	};
-	
 
 	constexpr std::string_view first_fmt = "{}={:.1f}/{:.1f}/{:.1f}, ";
 	constexpr std::string_view last_fmt = "{}={:.1f}/{:.1f}/{:.1f}";
 	
 	std::cout << '{';
-	auto begin = records.begin();
-	for (auto end = std::prev(records.end()) ; begin != end; ++begin) {
+	auto begin = sortedStations.begin();
+	for (auto end = std::prev(sortedStations.end()) ; begin != end; ++begin) {
 		printStat(r, *begin, first_fmt);
 	}
 	printStat(r, *begin, last_fmt);
@@ -294,6 +295,8 @@ std::ostream& operator<<(std::ostream& out, const Records& r) {
 		out << "key: " << key << ", value: " << value.nRecords << '\n';
 	return out;
 }
+
+
 
 
 int main(int argc, char* argv[]) {	
