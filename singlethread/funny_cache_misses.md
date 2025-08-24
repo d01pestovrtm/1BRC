@@ -11,6 +11,45 @@ Since the `std::string_view`s are created from a memory-mapped file, they stay v
 
 I implemented this in **`sv_vector.cpp`**. 
 
+```c++
+       '''
+       //In the function update records 
+       //place_sv is std::string_view
+       auto recordFound = records.find(place_sv);
+       if (recordFound == records.end()) {
+              sv_vec.push_back(place_sv);
+              records.emplace(place_sv, Stat{temp, temp, temp, 1});
+       } else
+       '''
+```
+and 
+```c++
+void printRecords(const Records& r,                                   std::vector<std::string_view>& sv_vec) {
+	std::ranges::sort(sv_vec);
+'''
+}       
+```
+instead of:
+```c++
+'''
+//In the function update records 
+//place_sv is std::string_view
+auto recordFound = records.find(place_sv);
+if (recordFound == records.end()) {
+       //create std::string only first time we have this place
+       records.emplace(std::string(place_sv), Stat{temp, temp, temp, 1});
+} else
+'''
+```
+and
+```c++
+void printRecords(const Records& r) 
+{
+       std::vector<std::string> sortedStations = sortStations(r);
+       '''
+}
+```
+
 ---
 
 
