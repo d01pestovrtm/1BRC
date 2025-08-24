@@ -1,7 +1,7 @@
 /*
 MIT License
 
-Copyright (c) 2024 RNDr. Dmitrij Pesztov
+Copyright (c) 2025 RNDr. Dmitrij Pesztov
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -42,7 +42,7 @@ SOFTWARE.
 #include <unistd.h>
 
 
-//TODO golang style defer macro?
+//Is golang style defer macro here applicable?
 // https://habr.com/ru/articles/916760/
 template <typename T, T empty = T{}>
 struct MoveOnly {
@@ -56,6 +56,7 @@ struct MoveOnly {
 		value_ = std::exchange(other.value_, empty);
 		return *this;
 	}
+	
 	/* The copy constructor/assignment are by default deleted
 	MoveOnly(const MoveOnly& other) = delete;
 	MoveOnly& operator=(const MoveOnly& other) = delete;
@@ -70,14 +71,13 @@ private:
 };
 
 
-//struct for handling file open/close
+//RAII wrapper for handling file open/close
 //we use posix otherwise we cannot memory map the file
-//TODO #ifdef _WIN32
+//TODO add version for windows via #ifdef _WIN32
 struct FileHandler {
 	explicit FileHandler(const std::filesystem::path &file_path) :
 		fdescr_(open(file_path.c_str(), O_RDONLY))
 	{
-		//if error
 		if (fdescr_ == -1)
 			throw std::system_error(errno, std::system_category(), "Cannot open file");
 	}
@@ -92,6 +92,7 @@ private:
 	MoveOnly<int, -1> fdescr_;
 };
 
+
 //struct for mapping file and giving buffer
 struct MemoryMap {
 	explicit MemoryMap(const std::filesystem::path &file_path) :
@@ -101,12 +102,14 @@ struct MemoryMap {
 		//here was probably a typo by Mr. Tóth 
 		//https://pubs.opengroup.org/onlinepubs/009696699/functions/fstat.html
 		if (fstat(fhandler_.get(), &file_stat) == -1)
-			throw std::system_error(errno, std::system_category(), "Cannot obtain information about the file");
+			throw std::system_error(errno, std::system_category(), 
+				"Cannot obtain information about the file");
 		
 		size_ = file_stat.st_size;
 		begin_ = static_cast <char *>(mmap(NULL, size_, PROT_READ, MAP_PRIVATE, fhandler_.get(), 0));
 		if (begin_ == MAP_FAILED)
-			throw std::system_error(errno, std::system_category(), "Cannot establish a mapping between a process' address space and a file");
+			throw std::system_error(errno, std::system_category(), 
+				"Cannot establish a mapping between a process' address space and a file");
 		current_ = begin_;
 	}
 	
@@ -234,14 +237,20 @@ void updateRecords(std::span <const char> sp, Records& records) {
 	}
 }
 
-//maybe std::ref (std::string)?
+
 std::vector<std::string> sortStations(const Records& r){
-	std::vector<std::string> result;
-	result.reserve(r.size());
-	
-	for (const auto& [key, _] : r) {
-		result.push_back(key);
-	}
+	//C++23 style
+	//unfortunately, my g++ doesn't support std::ranges::to
+	//TODO try to implement ranges::to on my own. should be an interesting task
+	std::vector<std::string> result(r.size());
+	auto key_view = r | std::views::keys;
+
+#ifdef __cpp_lib_ranges_to_container
+	result = std::ranges::to < std::vector > (key_view);
+#else
+	std::ranges::copy(key_view, result.begin());
+#endif
+
 	std::ranges::sort(result);
 	
 	return result;
@@ -268,14 +277,6 @@ void printRecords(const Records& r) {
 	std::cout << '}';
 }
 
-std::ostream& operator<<(std::ostream& out, const Records& r) {
-	for (const auto[key, value] : r)
-		out << "key: " << key << ", value: " << value.nRecords << '\n';
-	return out;
-}
-
-
-
 
 int main(int argc, char* argv[]) {	
 	Records r;
@@ -290,4 +291,3 @@ int main(int argc, char* argv[]) {
 	
 	printRecords(r);
 }
-
