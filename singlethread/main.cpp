@@ -281,7 +281,7 @@ void printRecords(const Records& r) {
 int main(int argc, char* argv[]) {	
 	Records r;
 	const size_t chunkSize = 128 * 1024 * 1024;
-	auto m =  MemoryMap("measurements.txt");
+	auto m =  MemoryMap("../measurements.txt");
 	
 	auto sp = m.getChunk(chunkSize);
 	while (!sp.empty()) {

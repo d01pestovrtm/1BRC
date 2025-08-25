@@ -22,7 +22,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-
 #include <iostream>
 #include <unordered_map>
 #include <string>
@@ -41,8 +40,11 @@ SOFTWARE.
 #include <sys/mman.h> 
 #include <fcntl.h>
 #include <unistd.h>
+#include <functional>
 
-const size_t num_uniqueRecords = 10'000;
+#include <mutex>
+#include <future>
+#include <thread>
 
 //Is golang style defer macro here applicable?
 // https://habr.com/ru/articles/916760/
@@ -118,7 +120,9 @@ struct MemoryMap {
 	//return memory chunk <= bufferSize such that all measurements are consistent
 	//by implementation chunk will have at least one measurement - 100 bytes station name + maximum 6 bytes temperature < 128
 	//TODO test if string_view is better here
-	std::span <const char> getChunk(size_t bufferSize = 128) {
+	std::span <const char> getChunk(size_t bufferSize = 128) {		
+	
+		std::lock_guard<std::mutex> lk(mut_);
 		if (bufferSize >= size_) {
 			auto result =  std::span <const char>(current_, begin_ + size_);
 			current_ = begin_ + size_;
@@ -126,6 +130,7 @@ struct MemoryMap {
 		}
 		if (current_ == begin_ + size_ )
 			return {};
+
 
 		const char * end = current_ + bufferSize;
 		if (end > begin_ + size_)
@@ -164,6 +169,7 @@ private:
 	MoveOnly<char *> begin_;
 	MoveOnly<size_t> size_;
 	const char * current_;
+	std::mutex mut_;
 };
 
 
@@ -187,8 +193,7 @@ struct string_hash {
 	}
 };
 
-
-using Records = std::unordered_map <std::string_view, Stat, string_hash, std::equal_to<>>;
+using Records = std::unordered_map <std::string, Stat, string_hash, std::equal_to<>>;
 
 
 //SFINAE to ensure that the lookup in hash_map is heterogenous
@@ -199,7 +204,8 @@ template <typename T>
 struct is_heterogenous_lookup<T, std::void_t<typename T::is_transparent>> : std::true_type {};
 
 
-void updateRecords(std::span <const char> sp, Records& records, std::vector <std::string_view>& sv_vec) {
+
+void updateRecords(std::span <const char> sp, Records& records) {
 	static_assert(is_heterogenous_lookup<Records::key_equal>::value, 
 		      "Comparator must support heterogenous lookup, i.e., *::is_transparent = void");
 	
@@ -211,7 +217,6 @@ void updateRecords(std::span <const char> sp, Records& records, std::vector <std
 		      
 	size_t begin = 0;
 	const size_t end = sp.size();
-	sv_vec.reserve(num_uniqueRecords);
 	while (begin < end) {
 		auto record = nextRecord(sp.subspan(begin));
 		begin += record.size();		
@@ -229,8 +234,8 @@ void updateRecords(std::span <const char> sp, Records& records, std::vector <std
 		
 		auto recordFound = records.find(place_sv);
 		if (recordFound == records.end()) {
-			sv_vec.push_back(place_sv);
-			records.emplace(place_sv, Stat{temp, temp, temp, 1});
+			//create std::string only first time we have this place
+			records.emplace(std::string(place_sv), Stat{temp, temp, temp, 1});
 		} else {
 			auto& stat = recordFound->second;
 			stat.min = std::min(stat.min, temp);
@@ -242,10 +247,28 @@ void updateRecords(std::span <const char> sp, Records& records, std::vector <std
 }
 
 
-void printRecords(const Records& r, std::vector <std::string_view>& sv_vec) {
-	std::ranges::sort(sv_vec);
+std::vector<std::string> sortStations(const Records& r){
+	//C++23 style
+	//unfortunately, my g++ doesn't support std::ranges::to
+	//TODO try to implement ranges::to on my own. should be an interesting task
+	std::vector<std::string> result(r.size());
+	auto key_view = r | std::views::keys;
+
+#ifdef __cpp_lib_ranges_to_container
+	result = std::ranges::to < std::vector > (key_view);
+#else
+	std::ranges::copy(key_view, result.begin());
+#endif
+
+	std::ranges::sort(result);
 	
-	auto printStat = [](const Records& r, const std::string_view key, std::string_view format) {
+	return result;
+}
+
+void printRecords(const Records& r) {
+	auto sortedStations = sortStations(r);
+	
+	auto printStat = [](const Records& r, const std::string& key, std::string_view format) {
 		const auto& stat = r.at(key);
 		std::cout << std::vformat(format, 
 			std::make_format_args(key, stat.min, stat.sum / stat.nRecords,  stat.max));
@@ -255,8 +278,8 @@ void printRecords(const Records& r, std::vector <std::string_view>& sv_vec) {
 	constexpr std::string_view last_fmt = "{}={:.1f}/{:.1f}/{:.1f}";
 	
 	std::cout << '{';
-	auto begin = sv_vec.begin();
-	for (auto end = std::prev(sv_vec.end()) ; begin != end; ++begin) {
+	auto begin = sortedStations.begin();
+	for (auto end = std::prev(sortedStations.end()) ; begin != end; ++begin) {
 		printStat(r, *begin, first_fmt);
 	}
 	printStat(r, *begin, last_fmt);
@@ -264,17 +287,59 @@ void printRecords(const Records& r, std::vector <std::string_view>& sv_vec) {
 }
 
 
-int main(int argc, char* argv[]) {	
-	Records r;
-	const size_t chunkSize = 128 * 1024 * 1024;
-	std::vector <std::string_view> sv_vec;
-	auto m =  MemoryMap("measurements.txt");
-	
-	auto sp = m.getChunk(chunkSize);
-	while (!sp.empty()) {
-		updateRecords(sp, r, sv_vec);
-		sp = m.getChunk(chunkSize);
+Records createRecords(const std::filesystem::path &file_path, const size_t chunkSize, const int numWorkers) {
+	//I could use packaged_task as well, but I want to try with promises, because in the real live 
+	//I might need them to set exceptions
+
+	auto m = MemoryMap(file_path);
+	std::vector < std::future < Records > > futures;
+	std::vector < std::thread > workers;
+	std::vector < Records > records_v;
+	Records result;
+
+	for (int i = 0; i < numWorkers; i++) {
+		std::promise <Records> p;
+		futures.push_back(p.get_future());
+		//maybe use std::ref to m
+		workers.emplace_back([&m, p = std::move(p), chunkSize = chunkSize]() mutable {
+				Records local;
+				auto sp = m.getChunk(chunkSize);
+				while (!sp.empty()) {
+					updateRecords(sp, local);
+					sp = m.getChunk(chunkSize);
+				}
+				p.set_value(std::move(local));
+			}
+		);
+	}
+	for (auto& w : workers) {
+		if (w.joinable()) w.join();
+	}
+	for (auto& f : futures) {
+        	records_v.push_back(f.get());
 	}
 	
-	printRecords(r, sv_vec);
+
+	for (const auto& map : records_v) {
+		for (const auto&[key, value] : map) {
+			auto it = result.find(key);
+			if (it == result.end())
+				result.emplace(key, value);
+			else {
+				auto& stat = it->second;
+				stat.min = std::min(stat.min, value.min);
+				stat.sum += value.sum;
+				stat.max = std::max(stat.max, value.max);
+				stat.nRecords += value.nRecords;
+			}
+		}
+	}
+	return result;
+}
+
+int main(int argc, char* argv[]) {
+	const size_t chunkSize = 128 * 1024 * 1024;
+	const int numWorkers = 8;
+	auto records = createRecords("../measurements.txt", chunkSize, numWorkers);
+	printRecords(records);
 }

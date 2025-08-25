@@ -229,8 +229,6 @@ void updateRecords(std::span <const char> sp, Records& records, std::vector <std
 		
 		auto recordFound = records.find(place_sv);
 		if (recordFound == records.end()) {
-			//create std::string only first time we have this place
-			
 			sv_vec.push_back(place_sv);
 			records.emplace(place_sv, Stat{temp, temp, temp, 1});
 		} else {
@@ -270,7 +268,7 @@ int main(int argc, char* argv[]) {
 	Records r;
 	const size_t chunkSize = 128 * 1024 * 1024;
 	std::vector <std::string_view> sv_vec;
-	auto m =  MemoryMap("measurements.txt");
+	auto m =  MemoryMap("../measurements.txt");
 	
 	auto sp = m.getChunk(chunkSize);
 	while (!sp.empty()) {
